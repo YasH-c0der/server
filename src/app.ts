@@ -1,0 +1,76 @@
+import express, { Application, Request, Response, NextFunction } from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import mongoose from 'mongoose';
+import { env } from './config/env';
+import { errorHandler } from './middlewares/error.middleware';
+import { AppError } from './utils/appError';
+import { ApiResponse } from './utils/apiResponse';
+
+import authRoutes from './modules/auth/auth.routes';
+
+const app: Application = express();
+
+// Security Headers
+app.use(helmet());
+
+// CORS Configuration
+app.use(
+  cors({
+    origin: env.CORS_ORIGIN === '*' ? '*' : env.CORS_ORIGIN.split(','),
+    credentials: true,
+  })
+);
+
+// Global Rate Limiting: 200 requests per 15 mins per IP for standard API protection
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many requests from this IP, please try again after 15 minutes.',
+  },
+});
+app.use('/api', limiter);
+
+// Request Body Parsing
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Health Check Endpoint
+app.get('/api/health', (_req: Request, res: Response) => {
+  const dbState = mongoose.connection.readyState;
+  const dbStatusMap: Record<number, string> = {
+    0: 'disconnected',
+    1: 'connected',
+    2: 'connecting',
+    3: 'disconnecting',
+  };
+
+  return ApiResponse.success(
+    res,
+    {
+      status: 'UP',
+      uptimeSeconds: Math.floor(process.uptime()),
+      database: dbStatusMap[dbState] ?? 'unknown',
+      environment: env.NODE_ENV,
+    },
+    'drinkPure backend service is healthy'
+  );
+});
+
+// Domain Routes
+app.use('/api/auth', authRoutes);
+
+// 404 Fallback for Unmatched Routes
+app.use((req: Request, _res: Response, next: NextFunction) => {
+  next(new AppError(`Endpoint not found: ${req.method} ${req.originalUrl}`, 404));
+});
+
+// Centralized Error Handling Middleware
+app.use(errorHandler);
+
+export default app;

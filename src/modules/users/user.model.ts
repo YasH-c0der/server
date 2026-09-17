@@ -1,5 +1,6 @@
 import mongoose, { Document, Schema, Types } from 'mongoose';
 import { USER_ROLES, UserRole } from '../../constants/roles';
+import { ACCOUNT_TYPES, AccountType } from '../../constants/accountTypes';
 
 export interface IAddress {
   _id?: Types.ObjectId;
@@ -22,6 +23,9 @@ export interface IUser extends Document {
   name?: string;
   email?: string;
   role: UserRole;
+  accountType: AccountType;
+  companyName?: string;
+  gstNumber?: string;
   addresses: IAddress[];
   isActive: boolean;
   createdAt: Date;
@@ -95,6 +99,21 @@ const UserSchema = new Schema<IUser>(
       enum: Object.values(USER_ROLES),
       default: USER_ROLES.CUSTOMER,
       index: true,
+    },
+    accountType: {
+      type: String,
+      enum: Object.values(ACCOUNT_TYPES),
+      default: ACCOUNT_TYPES.INDIVIDUAL,
+      index: true,
+    },
+    companyName: {
+      type: String,
+      trim: true,
+    },
+    gstNumber: {
+      type: String,
+      trim: true,
+      uppercase: true,
     },
     addresses: {
       type: [AddressSchema],

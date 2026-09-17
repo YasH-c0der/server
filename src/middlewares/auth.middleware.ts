@@ -5,7 +5,8 @@ import { User } from '../modules/users/user.model';
 import { UserRole } from '../constants/roles';
 
 /**
- * Authentication middleware that verifies JWT and loads the authenticated user.
+ * Authentication middleware:
+ * Checks for JWT in HTTP-only Cookie first, then falls back to Authorization: Bearer header.
  */
 export const authenticate = async (
   req: Request,
@@ -13,26 +14,26 @@ export const authenticate = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      throw new AppError('Authentication required. Please provide a Bearer token.', 401);
+    let token: string | undefined = req.cookies?.token;
+
+    if (!token && req.headers.authorization?.startsWith('Bearer ')) {
+      token = req.headers.authorization.split(' ')[1];
     }
 
-    const token = authHeader.split(' ')[1];
     if (!token) {
-      throw new AppError('Token is missing in authorization header.', 401);
+      throw new AppError('Authentication required. Please log in.', 401);
     }
 
     let payload;
     try {
       payload = verifyAuthToken(token);
     } catch {
-      throw new AppError('Invalid or expired authentication token.', 401);
+      throw new AppError('Invalid or expired authentication session. Please log in again.', 401);
     }
 
     const user = await User.findById(payload.userId);
     if (!user) {
-      throw new AppError('User belonging to this token no longer exists.', 401);
+      throw new AppError('User belonging to this session no longer exists.', 401);
     }
 
     if (!user.isActive) {

@@ -2,28 +2,50 @@ import { Otp } from './otp.model';
 import { User, IUser } from '../users/user.model';
 import { generateAuthToken, generateOtp, normalizePhone } from './auth.utils';
 import { AppError } from '../../utils/appError';
-import { UpdateProfileInput } from './auth.validation';
+import { SignupInput, LoginInput, UpdateProfileInput } from './auth.validation';
+import { ACCOUNT_TYPES, AccountType } from '../../constants/accountTypes';
 
 export interface RequestOtpResult {
   phone: string;
   otp: string;
   isRegistered: boolean;
+  accountType?: AccountType;
   expiresInSeconds: number;
 }
 
-export interface VerifyOtpResult {
+export interface AuthResponseResult {
   token: string;
   user: IUser;
-  isNewUser: boolean;
 }
 
 export class AuthService {
   /**
    * Generates and stores OTP for login or registration.
-   * As per requirements, returns the generated OTP in response for development/testing.
+   * Recognizes whether user is INDIVIDUAL or CORPORATE.
    */
-  static async requestOtp(rawPhone: string): Promise<RequestOtpResult> {
+  static async requestOtp(
+    rawPhone: string,
+    purpose?: 'LOGIN' | 'SIGNUP',
+    requestedAccountType?: AccountType
+  ): Promise<RequestOtpResult> {
     const phone = normalizePhone(rawPhone);
+    const existingUser = await User.findOne({ phone });
+
+    // Validation based on explicit flow purpose
+    if (purpose === 'LOGIN' && !existingUser) {
+      throw new AppError(
+        'No account found with this phone number. Please sign up first.',
+        404
+      );
+    }
+
+    if (purpose === 'SIGNUP' && existingUser) {
+      throw new AppError(
+        'An account with this phone number already exists. Please log in.',
+        409
+      );
+    }
+
     const otp = generateOtp();
 
     // Remove any previously pending OTP for this number to avoid stale collision
@@ -36,25 +58,104 @@ export class AuthService {
       createdAt: new Date(),
     });
 
-    const existingUser = await User.findOne({ phone });
-
     return {
       phone,
-      otp, // Provided in response as requested for testing
+      otp, // Provided in response for testing
       isRegistered: Boolean(existingUser),
+      accountType: existingUser ? existingUser.accountType : requestedAccountType || ACCOUNT_TYPES.INDIVIDUAL,
       expiresInSeconds: 300,
     };
   }
 
   /**
-   * Verifies OTP, clears it atomically, and logs in or creates a new user.
+   * Explicit Sign Up: Verifies OTP and registers user as INDIVIDUAL or CORPORATE.
    */
-  static async verifyOtp(rawPhone: string, otp: string): Promise<VerifyOtpResult> {
+  static async signup(data: SignupInput): Promise<AuthResponseResult> {
+    const phone = normalizePhone(data.phone);
+
+    // 1. Guard against duplicate registration
+    const existingUser = await User.findOne({ phone });
+    if (existingUser) {
+      throw new AppError(
+        'Phone number is already registered. Please log in instead.',
+        409
+      );
+    }
+
+    // 2. Atomic OTP verification & consumption
+    const validOtp = await Otp.findOneAndDelete({ phone, otp: data.otp });
+    if (!validOtp) {
+      throw new AppError('Invalid or expired OTP. Please request a new one.', 400);
+    }
+
+    // 3. Create the user with specified account type
+    const user = await User.create({
+      phone,
+      name: data.name,
+      email: data.email,
+      accountType: data.accountType || ACCOUNT_TYPES.INDIVIDUAL,
+      companyName: data.companyName,
+      gstNumber: data.gstNumber,
+    });
+
+    // 4. Generate access token
+    const token = generateAuthToken({
+      userId: user._id.toString(),
+      phone: user.phone,
+      role: user.role,
+      accountType: user.accountType,
+    });
+
+    return { token, user };
+  }
+
+  /**
+   * Explicit Login: Verifies OTP for an existing registered user.
+   */
+  static async login(data: LoginInput): Promise<AuthResponseResult> {
+    const phone = normalizePhone(data.phone);
+
+    // 1. Verify user exists
+    const user = await User.findOne({ phone });
+    if (!user) {
+      throw new AppError(
+        'No account found with this mobile number. Please sign up.',
+        404
+      );
+    }
+
+    if (!user.isActive) {
+      throw new AppError('Account has been deactivated. Please contact support.', 403);
+    }
+
+    // 2. Atomic OTP verification & consumption
+    const validOtp = await Otp.findOneAndDelete({ phone, otp: data.otp });
+    if (!validOtp) {
+      throw new AppError('Invalid or expired OTP. Please request a new one.', 400);
+    }
+
+    // 3. Generate access token
+    const token = generateAuthToken({
+      userId: user._id.toString(),
+      phone: user.phone,
+      role: user.role,
+      accountType: user.accountType,
+    });
+
+    return { token, user };
+  }
+
+  /**
+   * Fallback generic OTP verification (auto-login/register)
+   */
+  static async verifyOtp(
+    rawPhone: string,
+    otp: string,
+    accountType?: AccountType
+  ): Promise<AuthResponseResult & { isNewUser: boolean }> {
     const phone = normalizePhone(rawPhone);
 
-    // Atomic find & delete prevents replay attacks (OTP can only be used once)
     const validOtp = await Otp.findOneAndDelete({ phone, otp });
-
     if (!validOtp) {
       throw new AppError('Invalid or expired OTP. Please request a new one.', 400);
     }
@@ -63,9 +164,9 @@ export class AuthService {
     let user = await User.findOne({ phone });
 
     if (!user) {
-      // Auto-register customer upon first successful phone verification
       user = await User.create({
         phone,
+        accountType: accountType || ACCOUNT_TYPES.INDIVIDUAL,
       });
       isNewUser = true;
     }
@@ -78,17 +179,14 @@ export class AuthService {
       userId: user._id.toString(),
       phone: user.phone,
       role: user.role,
+      accountType: user.accountType,
     });
 
-    return {
-      token,
-      user,
-      isNewUser,
-    };
+    return { token, user, isNewUser };
   }
 
   /**
-   * Updates user profile (name, email).
+   * Updates user profile (name, email, accountType, companyName, gstNumber).
    */
   static async updateProfile(userId: string, data: UpdateProfileInput): Promise<IUser> {
     const user = await User.findById(userId);
@@ -98,6 +196,9 @@ export class AuthService {
 
     if (data.name !== undefined) user.name = data.name;
     if (data.email !== undefined) user.email = data.email;
+    if (data.accountType !== undefined) user.accountType = data.accountType;
+    if (data.companyName !== undefined) user.companyName = data.companyName;
+    if (data.gstNumber !== undefined) user.gstNumber = data.gstNumber;
 
     await user.save();
     return user;

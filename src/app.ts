@@ -8,6 +8,7 @@ import { errorHandler } from './middlewares/error.middleware';
 import { AppError } from './utils/appError';
 import { ApiResponse } from './utils/apiResponse';
 
+import cookieParser from 'cookie-parser';
 import authRoutes from './modules/auth/auth.routes';
 
 const app: Application = express();
@@ -15,13 +16,23 @@ const app: Application = express();
 // Security Headers
 app.use(helmet());
 
-// CORS Configuration
+// CORS Configuration (Reflects origin or configured origins to allow credentials with cookies)
 app.use(
   cors({
-    origin: env.CORS_ORIGIN === '*' ? '*' : env.CORS_ORIGIN.split(','),
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps, curl, Postman)
+      if (!origin) return callback(null, true);
+      if (env.CORS_ORIGIN === '*' || env.CORS_ORIGIN.split(',').includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error('Blocked by CORS policy'));
+    },
     credentials: true,
   })
 );
+
+// Cookie Parser for HTTP-only Auth Cookies
+app.use(cookieParser());
 
 // Global Rate Limiting: 200 requests per 15 mins per IP for standard API protection
 const limiter = rateLimit({

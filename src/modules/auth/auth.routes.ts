@@ -3,6 +3,8 @@ import { AuthController } from './auth.controller';
 import { validateRequest } from '../../middlewares/validate.middleware';
 import {
   requestOtpSchema,
+  signupSchema,
+  loginSchema,
   verifyOtpSchema,
   updateProfileSchema,
 } from './auth.validation';
@@ -18,6 +20,18 @@ router.post(
 );
 
 router.post(
+  '/signup',
+  validateRequest({ body: signupSchema }),
+  AuthController.signup
+);
+
+router.post(
+  '/login',
+  validateRequest({ body: loginSchema }),
+  AuthController.login
+);
+
+router.post(
   '/verify-otp',
   validateRequest({ body: verifyOtpSchema }),
   AuthController.verifyOtp
@@ -25,6 +39,7 @@ router.post(
 
 // Authenticated User Endpoints
 router.get('/me', authenticate, AuthController.getMe);
+router.post('/logout', authenticate, AuthController.logout);
 
 router.patch(
   '/profile',

@@ -2,10 +2,13 @@ import jwt, { SignOptions } from 'jsonwebtoken';
 import { env } from '../../config/env';
 import { UserRole } from '../../constants/roles';
 
+import { AccountType } from '../../constants/accountTypes';
+
 export interface JwtUserPayload {
   userId: string;
   phone: string;
   role: UserRole;
+  accountType?: AccountType;
 }
 
 export const generateAuthToken = (payload: JwtUserPayload): string => {

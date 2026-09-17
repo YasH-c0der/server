@@ -1,20 +1,42 @@
 import { z } from 'zod';
 import { ACCOUNT_TYPES } from '../../constants/accountTypes';
 
-export const requestOtpSchema = z.object({
-  phone: z
-    .string()
-    .min(1, 'Phone number is required')
-    .trim()
-    .regex(/^(\+91[\-\s]?)?[0]?(91)?[6789]\d{9}$/, 'Please provide a valid 10-digit mobile number'),
-  purpose: z.enum(['LOGIN', 'SIGNUP']).optional(),
-  accountType: z.enum([ACCOUNT_TYPES.INDIVIDUAL, ACCOUNT_TYPES.CORPORATE]).optional(),
-});
+/**
+ * OTP Request Schema:
+ * If purpose is 'SIGNUP', accountType is strictly mandatory right from step 1.
+ */
+export const requestOtpSchema = z
+  .object({
+    phone: z
+      .string()
+      .min(1, 'Phone number is required')
+      .trim()
+      .regex(/^(\+91[\-\s]?)?[0]?(91)?[6789]\d{9}$/, 'Please provide a valid 10-digit mobile number'),
+    purpose: z.enum(['LOGIN', 'SIGNUP']).optional(),
+    accountType: z
+      .enum([ACCOUNT_TYPES.INDIVIDUAL, ACCOUNT_TYPES.CORPORATE], {
+        message: "Account type must be either 'INDIVIDUAL' or 'CORPORATE'.",
+      })
+      .optional(),
+  })
+  .refine(
+    (data) => {
+      // If client explicitly requests a signup OTP, accountType must not be omitted
+      if (data.purpose === 'SIGNUP' && !data.accountType) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: "Account type ('INDIVIDUAL' or 'CORPORATE') is required when signing up.",
+      path: ['accountType'],
+    }
+  );
 
 /**
- * Minimal friction quick-commerce signup:
- * Only phone, OTP, and accountType are needed.
- * Name, email, companyName, and gstNumber are optional and can be filled later in profile.
+ * Signup Schema:
+ * Strict enforcement: phone, otp, and accountType are MANDATORY.
+ * The backend will NEVER silently default or ignore accountType.
  */
 export const signupSchema = z.object({
   phone: z
@@ -28,9 +50,9 @@ export const signupSchema = z.object({
     .trim()
     .length(6, 'OTP must be exactly 6 digits')
     .regex(/^\d{6}$/, 'OTP must contain numbers only'),
-  accountType: z
-    .enum([ACCOUNT_TYPES.INDIVIDUAL, ACCOUNT_TYPES.CORPORATE])
-    .default(ACCOUNT_TYPES.INDIVIDUAL),
+  accountType: z.enum([ACCOUNT_TYPES.INDIVIDUAL, ACCOUNT_TYPES.CORPORATE], {
+    message: "Account type is required. Please specify whether you are 'INDIVIDUAL' or 'CORPORATE'.",
+  }),
   name: z
     .string()
     .trim()

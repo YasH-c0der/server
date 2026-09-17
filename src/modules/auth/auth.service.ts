@@ -35,7 +35,15 @@ export class AuthService {
     if (purpose === 'LOGIN' && !existingUser) {
       throw new AppError(
         'No account found with this phone number. Please sign up first.',
-        404
+        404,
+        { isRegistered: false, action: 'REDIRECT_TO_SIGNUP' }
+      );
+    }
+
+    if (purpose === 'LOGIN' && existingUser && requestedAccountType && existingUser.accountType !== requestedAccountType) {
+      throw new AppError(
+        `This mobile number is registered as an ${existingUser.accountType} account, not ${requestedAccountType}.`,
+        403
       );
     }
 
@@ -120,7 +128,8 @@ export class AuthService {
     if (!user) {
       throw new AppError(
         'No account found with this mobile number. Please sign up.',
-        404
+        404,
+        { isRegistered: false, action: 'REDIRECT_TO_SIGNUP' }
       );
     }
 
@@ -128,7 +137,15 @@ export class AuthService {
       throw new AppError('Account has been deactivated. Please contact support.', 403);
     }
 
-    // 2. Atomic OTP verification & consumption
+    // 2. Validate account type if specified
+    if (data.accountType && user.accountType !== data.accountType) {
+      throw new AppError(
+        `This account is registered as ${user.accountType}. Please log in via the ${user.accountType.toLowerCase()} portal.`,
+        403
+      );
+    }
+
+    // 3. Atomic OTP verification & consumption
     const validOtp = await Otp.findOneAndDelete({ phone, otp: data.otp });
     if (!validOtp) {
       throw new AppError('Invalid or expired OTP. Please request a new one.', 400);

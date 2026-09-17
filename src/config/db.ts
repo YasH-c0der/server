@@ -1,5 +1,15 @@
+import dns from 'dns';
 import mongoose from 'mongoose';
 import { env } from './env';
+
+/**
+ * DNS RESOLVER FIX FOR MONGODB ATLAS (mongodb+srv://):
+ * Many home Wi-Fi routers and Indian ISPs (Jio, Airtel, ACT) refuse or fail to resolve
+ * DNS SRV queries on UDP port 53, causing: `querySrv ECONNREFUSED _mongodb._tcp...`
+ * Explicitly pointing Node's internal c-ares DNS resolver to Google and Cloudflare
+ * guarantees fast, reliable SRV lookup across any network environment.
+ */
+dns.setServers(['8.8.8.8', '8.8.4.4', '1.1.1.1']);
 
 /**
  * CRASH RISK IDENTIFICATION & MITIGATION:
@@ -15,6 +25,9 @@ import { env } from './env';
  * 3. Ungraceful Process Termination:
  *    - Risk: Abrupt process exit (SIGINT/SIGTERM) can interrupt ongoing write transactions and corrupt data.
  *    - Mitigation: Export disconnectDB() to ensure cleanly closing Mongoose connection pool during shutdown.
+ * 4. DNS SRV Lookup Failure (ECONNREFUSED):
+ *    - Risk: Node.js failing to resolve Atlas SRV records crashes process on startup.
+ *    - Mitigation: Explicit dns.setServers(['8.8.8.8', '8.8.4.4', '1.1.1.1']).
  */
 
 const MONGO_OPTIONS: mongoose.ConnectOptions = {

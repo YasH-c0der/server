@@ -10,8 +10,12 @@ import { ApiResponse } from './utils/apiResponse';
 
 import cookieParser from 'cookie-parser';
 import authRoutes from './modules/auth/auth.routes';
+import addressRoutes from './modules/addresses/address.routes';
 
 const app: Application = express();
+
+// Trust the first reverse proxy hop (Render, Cloudflare, AWS ALB) for accurate IP rate-limiting
+app.set('trust proxy', 1);
 
 // Security Headers
 app.use(helmet());
@@ -75,6 +79,7 @@ app.get('/api/health', (_req: Request, res: Response) => {
 
 // Domain Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/addresses', addressRoutes);
 
 // 404 Fallback for Unmatched Routes
 app.use((req: Request, _res: Response, next: NextFunction) => {
